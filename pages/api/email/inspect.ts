@@ -5,26 +5,13 @@ import { simpleParser } from "mailparser";
 import LinkifyIt from "linkify-it";
 import { JSDOM } from "jsdom";
 import * as dns from "dns/promises";
-<<<<<<< HEAD
-import * as psl from "psl";            // ← namespace import
-=======
 import * as psl from "psl";
-import levenshtein from "fast-levenshtein";
-import { fileTypeFromBuffer } from "file-type";
-<<<<<<< HEAD
-- import psl from "psl";
-+ import * as psl from "psl";
-=======
-import * as psl from "psl";            // ← namespace import
->>>>>>> c8f4bca (fix(ts): psl types and tsconfig include for Vercel)
->>>>>>> 9434636 (fix(ts): psl types and tsconfig include for Vercel)
 import levenshtein from "fast-levenshtein";
 import { fileTypeFromBuffer } from "file-type";
 
 export const config = { api: { bodyParser: false } };
 
 type Verdict = "safe" | "warning" | "phishing" | "clone" | "spam";
-
 type Auth = { spf: string; dkim: string; dmarc: string };
 
 function baseDomain(host: string) {
@@ -52,10 +39,10 @@ function sameBrand(a: string, b: string) {
 
 // Optional brand allowlist for known off-domain assets
 const BRAND_ALLOW: Record<string, string[]> = {
-  "ebay": ["ebaystatic.com", "ebaydesc.com", "ebayinc.com"],
-  "microsoft": ["microsoftonline.com", "office.com", "live.com", "windows.com"],
-  "google": ["googleusercontent.com", "gstatic.com", "withgoogle.com"],
-  "apple": ["icloud.com", "appleid.apple.com"],
+  ebay: ["ebaystatic.com", "ebaydesc.com", "ebayinc.com"],
+  microsoft: ["microsoftonline.com", "office.com", "live.com", "windows.com"],
+  google: ["googleusercontent.com", "gstatic.com", "withgoogle.com"],
+  apple: ["icloud.com", "appleid.apple.com"],
 };
 
 function extractLinks(text?: string, html?: string) {
@@ -143,7 +130,10 @@ function scoreVerdict(inp: ScoreInput) {
       const aligned = sameBrand(d, inp.fromDomain) || allow.has(baseDomain(d));
       if (!aligned) misaligned.push(d);
       // lookalike check
-      if (levenshtein.get(baseDomain(d), baseDomain(inp.fromDomain)) <= 2 && !sameBrand(d, inp.fromDomain)) {
+      if (
+        levenshtein.get(baseDomain(d), baseDomain(inp.fromDomain)) <= 2 &&
+        !sameBrand(d, inp.fromDomain)
+      ) {
         isClone = true;
       }
     }
@@ -203,9 +193,7 @@ async function parseMultipart(
       else if (Array.isArray(rawField) && typeof rawField[0] === "string") raw = rawField[0];
 
       let fileEntry: any =
-        (files as any).file ??
-        (files as any).files ??
-        Object.values(files)[0];
+        (files as any).file ?? (files as any).files ?? Object.values(files)[0];
 
       if (Array.isArray(fileEntry)) fileEntry = fileEntry[0];
 
@@ -267,7 +255,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           html = info.bodyHTML || "";
           auth = { spf: "n/a", dkim: "n/a", dmarc: "n/a" }; // .msg has no auth
         } catch {
-          return res.status(400).json({ error: "MSG parsing failed. Export as .eml and try again." });
+          return res
+            .status(400)
+            .json({ error: "MSG parsing failed. Export as .eml and try again." });
         }
       } else if (ext === "html" || (ft && ft.mime?.startsWith("text/html"))) {
         kind = "html";
