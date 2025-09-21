@@ -5,7 +5,7 @@ import { simpleParser } from "mailparser";
 import LinkifyIt from "linkify-it";
 import { JSDOM } from "jsdom";
 import * as dns from "dns/promises";
-import psl from "psl";
+import * as psl from "psl";            // ← namespace import
 import levenshtein from "fast-levenshtein";
 import { fileTypeFromBuffer } from "file-type";
 
