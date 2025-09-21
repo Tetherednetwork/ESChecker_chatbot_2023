@@ -1,0 +1,38 @@
+{
+  "name": "chatbot-ops",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "load:playbooks": "node scripts/load-playbooks.mjs",
+    "eval:offline": "node scripts/offline-eval.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.1",
+    "fast-levenshtein": "^3.0.0",
+    "file-type": "^21.0.0",
+    "formidable": "^3.5.4",
+    "jsdom": "^24.1.3",
+    "linkify-it": "^5.0.0",
+    "mailparser": "^3.7.4",
+    "msgreader": "^1.0.1",
+    "next": "15.5.3",
+    "psl": "^1.15.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "smtp-connection": "^4.0.2",
+    "validator": "^13.15.15",
+    "verifalia": "^5.0.0",
+    "whois-json": "^2.0.4"
+  },
+  "devDependencies": {
+    "@types/formidable": "^3.4.5",
+    "@types/node": "^20.14.11",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.6.3"
+  }
+}
