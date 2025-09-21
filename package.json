@@ -29,6 +29,7 @@
     "whois-json": "^2.0.4"
   },
   "devDependencies": {
+    "@types/fast-levenshtein": "^0.0.4",
     "@types/formidable": "^3.4.5",
     "@types/jsdom": "^21.1.7",
     "@types/linkify-it": "^5.0.0",

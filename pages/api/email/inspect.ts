@@ -5,7 +5,19 @@ import { simpleParser } from "mailparser";
 import LinkifyIt from "linkify-it";
 import { JSDOM } from "jsdom";
 import * as dns from "dns/promises";
+<<<<<<< HEAD
 import * as psl from "psl";            // ← namespace import
+=======
+import * as psl from "psl";
+import levenshtein from "fast-levenshtein";
+import { fileTypeFromBuffer } from "file-type";
+<<<<<<< HEAD
+- import psl from "psl";
++ import * as psl from "psl";
+=======
+import * as psl from "psl";            // ← namespace import
+>>>>>>> c8f4bca (fix(ts): psl types and tsconfig include for Vercel)
+>>>>>>> 9434636 (fix(ts): psl types and tsconfig include for Vercel)
 import levenshtein from "fast-levenshtein";
 import { fileTypeFromBuffer } from "file-type";
 
