@@ -1,4 +1,5 @@
 // pages/api/email/inspect.ts
+import MSGReader from "msgreader";
 import type { NextApiRequest, NextApiResponse } from "next";
 import formidable from "formidable";
 import { simpleParser } from "mailparser";
