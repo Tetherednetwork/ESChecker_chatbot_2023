@@ -36,28 +36,18 @@ async function dblCheckDomain(domain: string) {
 
 async function rdapCreated(domain: string) {
   try {
-    const r = await withTimeout(
-      fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`),
-      6000,
-      null as any
-    );
+    const r = await withTimeout(fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`), 6000, null as any);
     if (r && (r as any).ok) {
       const j: any = await (r as any).json();
       const ev: any[] = Array.isArray(j.events) ? j.events : [];
-      const e =
-        ev.find((x) => /registration|created|creation/i.test(x?.eventAction)) ||
-        ev.find((x) => /registration|create/i.test(x?.eventAction));
+      const e = ev.find((x) => /registration|created|creation/i.test(x?.eventAction)) ||
+                ev.find((x) => /registration|create/i.test(x?.eventAction));
       if (e?.eventDate) return String(e.eventDate);
     }
   } catch {}
   try {
     const info: any = await withTimeout(whois(domain, { follow: 2 }), 6000, null as any);
-    const c =
-      info?.creationDate ||
-      info?.created ||
-      info?.["Creation Date"] ||
-      info?.["created"] ||
-      null;
+    const c = info?.creationDate || info?.created || info?.["Creation Date"] || info?.["created"] || null;
     return c ? String(c) : null;
   } catch {
     return null;
@@ -79,8 +69,7 @@ async function localBaseline(email: string) {
     created = await rdapCreated(domain);
   }
 
-  let mailbox: { status: MailboxStatus; catchAll?: boolean } = { status: "unknown" };
-
+  const mailbox: { status: MailboxStatus; catchAll?: boolean } = { status: "unknown" };
   const safeToSend = Boolean(formatOK && hasMX && !dbl.listed && mailbox.status !== "invalid");
   const list: "whitelist" | "greylist" | "blacklist" =
     !formatOK || dbl.listed ? "blacklist" : safeToSend ? "whitelist" : "greylist";
@@ -95,7 +84,12 @@ async function localBaseline(email: string) {
     mailbox,
     dbl,
     whois: { created },
-    verdict: { list, safeToSend, strict: false, confidence: { score: 4, band: "medium", ageDays: 0 } },
+    verdict: {
+      list,
+      safeToSend,
+      strict: false,
+      confidence: { score: 4, band: "medium", ageDays: 0 },
+    },
     notes: ["Local baseline used. Could not confirm mailbox existence."],
   };
 }
@@ -103,7 +97,6 @@ async function localBaseline(email: string) {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const email = String(req.query.email || "").trim().toLowerCase();
-
     const hit = cache.get(email);
     if (hit && Date.now() - hit.ts < TTL_MS) {
       return res.status(200).json(hit.data);
@@ -123,10 +116,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!apiKey) throw new Error("Missing MyEmailVerifier API key");
 
     const response = await axios.get("https://emailverifier.space/api/email", {
-      params: { email, apiKey }
+      params: { email, apiKey },
     });
 
     const result = response.data;
+    const primary = result.primary_result || "unknown";
+    const smtp = result.process_result?.smtp_check || "Unknown";
+
     const mailbox: {
       status: MailboxStatus;
       catchAll?: boolean;
@@ -135,16 +131,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       completed?: string;
       reasons?: any;
     } = {
-      status: result.primary_result || "unknown",
+      status: primary,
       catchAll: result.secondary_result === "accept_all",
-      classification: result.primary_result,
-      reasons: result.process_result
+      classification: primary,
+      reasons: result.process_result,
     };
 
-    const safeToSend = result.primary_result === "valid" && result.process_result?.smtp_check === "Pass";
-    const list: "whitelist" | "greylist" | "blacklist" =
-      result.primary_result === "valid" ? "whitelist" :
-      result.primary_result === "risky" ? "greylist" : "blacklist";
+    let list: "whitelist" | "greylist" | "blacklist";
+    let confidence: "high" | "medium" | "low";
+
+    if (primary === "valid" && smtp === "Pass") {
+      list = "whitelist";
+      confidence = "high";
+    } else if (primary === "risky" || smtp === "Unknown") {
+      list = "greylist";
+      confidence = "medium";
+    } else {
+      list = "blacklist";
+      confidence = "low";
+    }
+
+    const safeToSend = list === "whitelist";
 
     const out = {
       source: "myemailverifier",
@@ -161,14 +168,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         safeToSend,
         strict: true,
         confidence: {
-          score: safeToSend ? 9 : list === "greylist" ? 5 : 2,
-          band: safeToSend ? "high" : list === "greylist" ? "medium" : "low",
+          score: confidence === "high" ? 9 : confidence === "medium" ? 5 : 2,
+          band: confidence,
           ageDays: created ? Math.max(0, Math.floor((Date.now() - Date.parse(created)) / 86400000)) : 0,
         },
       },
       notes: [
         "Validation performed via MyEmailVerifier.",
-        "Includes syntax, MX, SMTP, catch-all, role, and disposable checks."
+        "Includes syntax, MX, SMTP, catch-all, role, and disposable checks.",
       ],
     };
 
