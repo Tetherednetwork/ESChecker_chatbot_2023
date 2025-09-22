@@ -1,261 +1,184 @@
-// pages/upload.tsx
-import React, { useRef, useState } from "react";
+// pages/chat.tsx
+import React, { useEffect, useRef, useState } from "react";
 import Head from "next/head";
 
-type ApiRes = {
-  kind: "eml" | "msg" | "html" | "raw";
-  meta: { subject: string; from: string; date: string | null };
-  auth: { spf: string; dkim: string; dmarc: string };
-  links: string[];
-  linkDomains: { domain: string; dns: boolean }[];
-  verdict: "safe" | "warning" | "phishing" | "clone" | "spam";
-  reasons: string[];
-  tips: string[];
+type Cite = { label: string; url: string };
+type BotOut = {
+  id: number | null;
+  type: string;
+  severity: string;
+  phase: string;
+  steps: string[];
+  citations: Cite[];
 };
-type Item =
-  | { fileName: string; data: ApiRes; ts: number }
-  | { fileName: string; error: string; ts: number };
+type Msg = { role: "user" | "assistant"; content: string; data?: BotOut };
+type GuidanceRes = { error?: string; guidance?: string[]; examples?: string[] };
 
-function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
-  let t: any;
-  return (...args: any[]) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
-
-function EmailChecker() {
-  const [q, setQ] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
-  const [res, setRes] = React.useState<any>(null);
-  const [err, setErr] = React.useState<string | null>(null);
-
-  const run = React.useMemo(
-    () =>
-      debounce(async (value: string) => {
-        if (!value || value.length < 5 || !value.includes("@")) {
-          setRes(null);
-          setErr(null);
-          setLoading(false);
-          return;
-        }
-        setLoading(true);
-        setErr(null);
-        try {
-          const r = await fetch(
-            `/api/email/verify?email=${encodeURIComponent(value)}`
-          );
-          const j = await r.json();
-          if (!r.ok) throw new Error(j.error || "check_failed");
-          setRes(j);
-        } catch (e: any) {
-          setErr(e.message || "error");
-          setRes(null);
-        } finally {
-          setLoading(false);
-        }
-      }, 600),
-    []
-  );
-
-  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value.trim();
-    setQ(v);
-    setLoading(true);
-    run(v);
-  }
-
-  const badge =
-    res?.verdict?.list === "blacklist"
-      ? { text: "BLACKLIST", bg: "#ef4444" }
-      : res?.verdict?.list === "whitelist"
-      ? { text: "WHITELIST", bg: "#10b981" }
-      : res?.verdict?.list === "greylist"
-      ? { text: "GREYLIST", bg: "#f59e0b" }
-      : null;
-
-  return (
-    <div className="ec-wrap">
-      <input
-        type="email"
-        placeholder="Type an email to validate..."
-        value={q}
-        onChange={onChange}
-        className="ec-input"
-      />
-      {loading && <span className="spin" aria-label="checking" />}
-      {!loading && badge && (
-        <span className="ec-badge" style={{ background: badge.bg }}>
-          {badge.text}
-        </span>
-      )}
-
-      {!loading && res && (
-        <div className="ec-pop">
-          <div><b>Domain:</b> {res.domain || "-"}</div>
-          <div><b>Format:</b> {String(res.formatOK)}</div>
-          <div><b>MX:</b> {res.hasMX ? "yes" : "no"}</div>
-          <div>
-            <b>Mailbox:</b> {res.mailbox?.status}
-            {res.mailbox?.catchAll ? " (catch-all)" : ""}
-          </div>
-          <div><b>Blacklist (DBL):</b> {res.dbl?.listed ? "listed" : "clear"}</div>
-          <div><b>Domain Created:</b> {res.whois?.created || "-"}</div>
-          <div><b>Safe to send:</b> {String(res.verdict?.safeToSend)}</div>
-          <div>
-            <b>Confidence:</b> {res.verdict?.confidence?.band} ({res.verdict?.confidence?.score})
-          </div>
-        </div>
-      )}
-      {!loading && err && <div className="ec-pop err">{err}</div>}
-
-      <style jsx>{`
-        .ec-wrap {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          gap: 10px;
-          width: 100%;
-          max-width: 540px;
-          z-index: 3;
-        }
-        .ec-input {
-          flex: 1;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          color: #e5e7eb;
-          padding: 12px 14px;
-          border-radius: 12px;
-          outline: none;
-          font-size: 15px;
-        }
-        .ec-badge {
-          color: white;
-          font-size: 12px;
-          padding: 4px 10px;
-          border-radius: 999px;
-          white-space: nowrap;
-        }
-        .spin {
-          width: 18px;
-          height: 18px;
-          border: 2px solid rgba(255, 255, 255, 0.25);
-          border-top-color: #93c5fd;
-          border-radius: 50%;
-          animation: rot 0.8s linear infinite;
-        }
-        .ec-pop {
-          position: absolute;
-          left: 0;
-          right: 0; /* contain to input width */
-          top: calc(100% + 10px);
-          background: rgba(11, 18, 32, 0.96);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          color: #e5e7eb;
-          padding: 12px 14px;
-          border-radius: 12px;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-          font-size: 14px;
-          z-index: 4;
-          max-width: 100%;
-        }
-        .ec-pop.err { color: #fca5a5; }
-        @media (max-width: 480px) {
-          .ec-pop {
-            position: fixed;
-            left: 16px;
-            right: 16px;
-            bottom: 16px;
-            top: auto;
-            max-width: calc(100vw - 32px);
-          }
-        }
-        @keyframes rot { to { transform: rotate(360deg); } }
-      `}</style>
-    </div>
-  );
-}
-
-export default function UploadPage() {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [items, setItems] = useState<Item[]>([]);
+export default function Chat() {
+  const [messages, setMessages] = useState<Msg[]>([
+    {
+      role: "assistant",
+      content:
+        "Describe the issue. I will classify it, set severity, give steps, and cite standards.",
+    },
+  ]);
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  function verdictColor(v: ApiRes["verdict"]) {
-    if (v === "safe") return "#10b981";
-    if (v === "warning") return "#f59e0b";
-    if (v === "spam") return "#6b7280";
-    return "#ef4444";
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  function guidanceText(): string {
+    return [
+      "Please describe the issue in one clear sentence.",
+      "",
+      "Tips:",
+      "- Say the system. Example: VPN, Wi-Fi, Outlook, Website.",
+      "- Say the scope. Example: 1 user, 20 users, all users.",
+      "- Say the symptom. Example: cannot login, 500 errors, slow, bounced email.",
+      "- Add a recent change if known. Example: after deploy, after MFA change.",
+      "",
+      "Examples:",
+      "• VPN fails for 20 users after MFA change.",
+      "• Outlook shows 0x800CCC0E when sending.",
+      "• Website returns 500 after the last deploy.",
+      "• User reports phishing email with a fake Microsoft login link.",
+    ].join("\n");
   }
 
-  async function handleFile(f: File) {
-    setHint(null);
+  async function send() {
+    if (!input.trim() || loading) return;
+    const userText = input.trim();
+
+    const tooShort =
+      userText.length < 15 || userText.split(/\s+/).filter(Boolean).length < 3;
+    if (tooShort) {
+      setMessages((m) => [
+        ...m,
+        { role: "user", content: userText },
+        { role: "assistant", content: guidanceText() },
+      ]);
+      setInput("");
+      return;
+    }
+
+    setMessages((m) => [...m, { role: "user", content: userText }]);
+    setInput("");
+    setLoading(true);
+    try {
+      const r = await fetch("/api/bot/advice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: userText }),
+      });
+      const data = await r.json();
+
+      if (!r.ok) {
+        const g = data as GuidanceRes;
+        const lines: string[] = [];
+        if (g.error) lines.push(g.error);
+        if (Array.isArray(g.guidance) && g.guidance.length) {
+          lines.push("", "Tips:");
+          g.guidance.forEach((t) => lines.push("- " + t));
+        }
+        if (Array.isArray(g.examples) && g.examples.length) {
+          lines.push("", "Examples:");
+          g.examples.forEach((e) => lines.push("• " + e));
+        }
+        setMessages((m) => [...m, { role: "assistant", content: lines.join("\n") }]);
+        return;
+      }
+
+      const out = data as BotOut;
+      setMessages((m) => [...m, { role: "assistant", content: "", data: out }]);
+    } catch (e: any) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: e.message || "Network error" },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const inputEl = e.target as HTMLInputElement;
+    const f = inputEl.files?.[0];
+    if (!f || loading) return;
+
     setLoading(true);
     try {
       const fd = new FormData();
       fd.append("file", f);
       const r = await fetch("/api/email/inspect", { method: "POST", body: fd });
-      const j = await r.json();
+      const data = await r.json();
       if (!r.ok) {
-        setItems((prev) => [
-          { fileName: f.name, error: j.error || "Upload failed", ts: Date.now() },
-          ...prev,
+        setMessages((m) => [
+          ...m,
+          { role: "user", content: `Uploaded file: ${f.name}` },
+          { role: "assistant", content: data.error || "File check failed" },
         ]);
-      } else {
-        setItems((prev) => [
-          { fileName: f.name, data: j as ApiRes, ts: Date.now() },
-          ...prev,
-        ]);
+        return;
       }
-    } catch (e: any) {
-      setItems((prev) => [
-        { fileName: f.name, error: e.message || "Network error", ts: Date.now() },
-        ...prev,
+      const lines = [
+        `Email check: ${String(data.verdict || "").toUpperCase()}`,
+        `From: ${data.meta?.from || ""}`,
+        `Subject: ${data.meta?.subject || ""}`,
+        `Auth SPF/DKIM/DMARC: ${data.auth?.spf}/${data.auth?.dkim}/${data.auth?.dmarc}`,
+      ];
+      if (Array.isArray(data.reasons) && data.reasons.length) {
+        lines.push("", "Reasons:");
+        data.reasons.forEach((r: string) => lines.push("- " + r));
+      }
+      if (Array.isArray(data.tips) && data.tips.length) {
+        lines.push("", "What to do:");
+        data.tips.forEach((t: string) => lines.push("- " + t));
+      }
+      setMessages((m) => [
+        ...m,
+        { role: "user", content: `Uploaded file: ${f.name}` },
+        { role: "assistant", content: lines.join("\n") },
+      ]);
+    } catch (err: any) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: err.message || "Upload failed" },
       ]);
     } finally {
       setLoading(false);
-      if (fileRef.current) fileRef.current.value = "";
+      if (inputEl) inputEl.value = "";
     }
   }
 
-  function onPick() { fileRef.current?.click(); }
-  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) { setHint("Choose a .eml, .msg, or .html file."); return; }
-    handleFile(f);
-  }
-  function onDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
-    const f = e.dataTransfer.files?.[0];
-    if (!f) { setHint("Drop one .eml, .msg, or .html file."); return; }
-    handleFile(f);
+  function newChat() {
+    setMessages([
+      { role: "assistant", content: "New chat started. Describe the issue." },
+    ]);
   }
 
   return (
     <div className="page">
       <Head>
-        <title>Email Safety Checker</title>
+        <title>Chat | ESChecker</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#0b1220" />
 
-        {/* Favicons */}
+        {/* Favicons / manifest */}
         <link rel="icon" href="/favicon.ico" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/site.webmanifest" />
 
-        {/* Preload brand + background assets */}
+        {/* Preload key assets */}
         <link rel="preload" as="image" href="/logo.png" />
         <link rel="preload" as="image" href="/bg-poster.jpg" />
         <link rel="preload" as="video" href="/bg.webm" type="video/webm" />
         <link rel="preload" as="video" href="/bg.mp4" type="video/mp4" />
       </Head>
 
-      {/* Background video */}
+      {/* Background video + overlay */}
       <video
         className="bg-video"
         autoPlay
@@ -271,182 +194,95 @@ export default function UploadPage() {
       </video>
       <div className="bg-overlay" aria-hidden="true" />
 
-      {/* Brand header with logo (PNG from /public) */}
+      {/* Brand header */}
       <header className="brand" aria-label="brand">
-        <img
-          src="/logo.png"
-          alt="Brand logo"
-          className="brand-logo"
-          width={140}
-          height={40}
-        />
+        <img src="/logo.png" alt="Brand logo" className="brand-logo" width={140} height={40} />
         <span className="brand-name">ESChecker 2025</span>
       </header>
 
-      <div className="grid">
-        {/* LEFT COLUMN */}
-        <section className="left column">
-          <h2 className="title">Email Safety Checker</h2>
-          <p className="subtitle">
-            SAFE. No high-risk signals.<br />
-            WARNING. One risk signal.<br />
-            PHISHING. Multiple risk signals or failed auth.<br />
-            CLONE. Lookalike domain risk.<br />
-            SPAM. Spam terms with low technical risk.
-          </p>
+      <div className="chat-grid">
+        <aside className="sidebar">
+          <button className="btn" onClick={newChat}>New chat</button>
+          <div className="aside-note">Chatbot for IT, Security, and Nonconformity.</div>
+        </aside>
 
-          <div
-            className={`drop ${dragOver ? "active" : ""}`}
-            onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-          >
-            <div className="drop-inner">
-              <div className="drop-icon" aria-hidden>
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 3l3.5 3.5-2 2L13 7.99V14h-2V7.99l-.5.51-2-2L12 3z" />
-                  <path d="M6 14v4h12v-4h2v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4h2z" />
-                </svg>
-              </div>
-              <div className="drop-title">Upload an email file</div>
-              <div className="drop-sub">Accepts .eml, .msg, .html</div>
-              <div className="cta">
-                <button className="primary" onClick={onPick} disabled={loading}>
-                  {loading ? "Checking…" : "Choose file"}
-                </button>
-                <span className="hint">or drag and drop here</span>
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".eml,.msg,.html"
-                hidden
-                onChange={onInputChange}
-              />
-              {hint && <div className="error">{hint}</div>}
-            </div>
-          </div>
-
-          <div className="resultsBox">
-            {items.length === 0 ? (
-              <div className="empty">
-                <div className="empty-art" aria-hidden>
-                  <svg width="180" height="90" viewBox="0 0 220 120" fill="none">
-                    <rect x="10" y="20" width="200" height="80" rx="12" fill="rgba(255,255,255,0.06)" />
-                    <rect x="25" y="35" width="170" height="14" rx="7" fill="rgba(255,255,255,0.15)" />
-                    <rect x="25" y="55" width="130" height="10" rx="5" fill="rgba(255,255,255,0.1)" />
-                    <rect x="25" y="73" width="90" height="10" rx="5" fill="rgba(255,255,255,0.1)" />
-                  </svg>
-                </div>
-                <p>No results yet</p>
-              </div>
-            ) : (
-              <div className="resultList">
-                {items.map((it) => {
-                  const key = `${it.fileName}-${it.ts}`;
-                  if ("error" in it) {
-                    return (
-                      <article key={key} className="card card-error">
-                        <header className="card-head">
-                          <div className="file">{it.fileName}</div>
-                          <span className="badge" style={{ background: "#ef4444" }}>ERROR</span>
-                        </header>
-                        <div className="line">
-                          <span className="label">Message</span>
-                          <span className="value err">{it.error}</span>
-                        </div>
-                      </article>
-                    );
-                  }
-                  const d = it.data;
-                  return (
-                    <article key={key} className="card">
-                      <header className="card-head">
-                        <div className="file">{it.fileName}</div>
-                        <span className="badge" style={{ background: verdictColor(d.verdict) }}>
-                          {d.verdict.toUpperCase()}
-                        </span>
-                      </header>
-
-                      <div className="gridInfo">
-                        <div className="line"><span className="label">From</span><span className="value">{d.meta.from || "-"}</span></div>
-                        <div className="line"><span className="label">Subject</span><span className="value">{d.meta.subject || "-"}</span></div>
-                        <div className="line"><span className="label">Type</span><span className="value">{d.kind.toUpperCase()}</span></div>
-                        <div className="line">
-                          <span className="label">Auth</span>
-                          <span className="value">SPF {d.auth.spf} · DKIM {d.auth.dkim} · DMARC {d.auth.dmarc}</span>
-                        </div>
-                      </div>
-
-                      {d.reasons.length > 0 && (
-                        <div className="block">
-                          <div className="block-title">Signals</div>
-                          <ul className="list">
-                            {d.reasons.map((r, i) => <li key={i}>{r}</li>)}
-                          </ul>
-                        </div>
-                      )}
-
-                      {d.links.length > 0 && (
-                        <div className="block">
-                          <div className="block-title">Links</div>
-                          <ul className="list">
-                            {d.links.map((u, i) => (
-                              <li key={i}><a href={u} target="_blank" rel="noreferrer">{u}</a></li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {d.linkDomains.length > 0 && (
-                        <div className="block">
-                          <div className="block-title">Domains</div>
-                          <ul className="list">
-                            {d.linkDomains.map((o, i) => (
-                              <li key={i}>{o.domain} · DNS {o.dns ? "yes" : "no"}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {d.tips.length > 0 && (
-                        <div className="block">
-                          <div className="block-title">What to do</div>
-                          <ul className="list">
-                            {d.tips.map((t, i) => <li key={i}>{t}</li>)}
-                          </ul>
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* DIVIDER */}
         <div className="divider" role="separator" />
 
-        {/* RIGHT COLUMN */}
-        <section className="right column">
-          <h2 className="title small">Email Address Verification</h2>
-          <p className="subtitle small">Checks if an email address is real and able to receive mail.</p>
+        <main className="chat-main">
+          <div className="topbar">Ops &amp; Security Chatbot</div>
 
-          <div className="privacy">
-            <b>Privacy:</b> <br />No test emails sent.<br />
-            Probes stop before DATA.<br />
-            No message content stored.<br />
-            Minimal logs kept for troubleshooting
+          <div className="feed">
+            {messages.map((m, i) => (
+              <div key={i} className="row">
+                <div className={`avatar ${m.role === "user" ? "user" : "assistant"}`}>
+                  {m.role === "user" ? "U" : "A"}
+                </div>
+
+                {m.role === "assistant" && m.data ? (
+                  <div className="bubble">
+                    <p className="t">Type: {m.data.type}</p>
+                    <p className="t">Severity: {m.data.severity}</p>
+                    <p className="t">Phase: {m.data.phase}</p>
+
+                    <p className="t">Steps:</p>
+                    <ol className="ol">
+                      {m.data.steps.map((s, idx) => (
+                        <li key={idx}>{s}</li>
+                      ))}
+                    </ol>
+
+                    <p className="t">Citations:</p>
+                    <ul className="ul">
+                      {m.data.citations.map((c, idx) => (
+                        <li key={idx}><a href={c.url} target="_blank" rel="noreferrer">{c.label}</a></li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <pre className="bubble pre">{m.content}</pre>
+                )}
+              </div>
+            ))}
+            <div ref={bottomRef} />
           </div>
 
-          <div className="checkerBox">
-            <EmailChecker />
+          {/* Composer (sticky on mobile) */}
+          <div className="composer">
+            <div className="compose-row">
+              <textarea
+                rows={6}
+                placeholder="Example: VPN fails for 20 users after MFA change."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                className="text"
+              />
+              <button
+                className="btn send"
+                onClick={send}
+                disabled={loading || input.trim().length === 0}
+              >
+                {loading ? "Working..." : "Send"}
+              </button>
+            </div>
+
+            <div className="upload-row">
+              <input
+                type="file"
+                accept=".eml,.msg,.html"
+                onChange={handleFileChange}
+                disabled={loading}
+              />
+              <div className="small">Accepts .eml, .msg, .html</div>
+            </div>
+
+            <div className="small hint">
+              The bot cites NIST, ISO 27035, MITRE, CVSS, ISO 9001, and SEV levels.
+            </div>
           </div>
-        </section>
+        </main>
       </div>
 
+      {/* Footer */}
       <footer className="footer">
         eofolarin initiative 2024 ©{" "}
         <a href="https://www.eofolarin.com" target="_blank" rel="noreferrer">
@@ -458,29 +294,23 @@ export default function UploadPage() {
         * { box-sizing: border-box; }
 
         .page {
-          min-height: 100vh;
+          min-height: 100dvh;
           color: #e5e7eb;
           position: relative;
           padding-top: 64px;
+          padding-bottom: max(12px, env(safe-area-inset-bottom));
           background: transparent;
+          overscroll-behavior: contain;
         }
 
-        /* Background video and overlay */
         .bg-video {
-          position: fixed;
-          inset: 0;
-          width: 100vw;
-          height: 100vh;
-          object-fit: cover;
-          z-index: 0;
+          position: fixed; inset: 0;
+          width: 100vw; height: 100vh; object-fit: cover;
+          z-index: 0; pointer-events: none;
           filter: brightness(0.55) contrast(1.05) saturate(1.08);
-          pointer-events: none;
         }
         .bg-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 1;
-          pointer-events: none;
+          position: fixed; inset: 0; z-index: 1; pointer-events: none;
           background:
             radial-gradient(800px 400px at 10% 10%, rgba(59,130,246,0.25), rgba(59,130,246,0) 60%),
             radial-gradient(700px 350px at 90% 20%, rgba(16,185,129,0.22), rgba(16,185,129,0) 60%),
@@ -497,200 +327,158 @@ export default function UploadPage() {
           }
         }
 
-        /* Brand header */
         .brand {
-          position: fixed;
-          top: 12px;
-          left: 12px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 8px 12px;
-          border-radius: 12px;
-          background: rgba(11, 18, 32, 0.55);
+          position: fixed; top: 12px; left: 12px;
+          display: flex; align-items: center; gap: 10px;
+          padding: 8px 12px; border-radius: 12px;
+          background: rgba(11,18,32,0.55);
           backdrop-filter: blur(6px);
-          box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+          box-shadow: 0 6px 24px rgba(0,0,0,0.35);
           z-index: 20;
         }
-        .brand-logo {
-          display: block;
-          max-height: 40px;
-          height: auto;
-          width: auto;
-          object-fit: contain;
-        }
-        .brand-name {
-          font-weight: 700;
-          letter-spacing: 0.2px;
-          color: #e5e7eb;
-        }
-
-        /* Mobile: center and shrink brand, add extra top padding so it never covers content */
+        .brand-logo { max-height: 40px; display: block; object-fit: contain; }
+        .brand-name { font-weight: 700; letter-spacing: .2px; }
         @media (max-width: 540px) {
-          .brand {
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 6px 10px;
-          }
+          .brand { left: 50%; transform: translateX(-50%); padding: 6px 10px; }
           .brand-logo { max-height: 32px; }
           .brand-name { font-size: 14px; }
-          .page { padding-top: 100px; }
+          .page { padding-top: 100px; } /* ensure logo never covers title */
         }
 
-        /* Main grid - mobile first */
-        .grid {
-          position: relative;
-          z-index: 2;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 24px;
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: clamp(16px,4vw,40px) clamp(12px,5vw,24px) 80px;
+        /* Layout */
+        .chat-grid {
+          position: relative; z-index: 2;
+          display: grid; grid-template-columns: 1fr; gap: 16px;
+          max-width: 1400px; margin: 0 auto;
+          padding: clamp(12px,4vw,24px) clamp(10px,5vw,24px) 16px;
         }
-        .column { min-width: 0; } /* allow shrinking to avoid overflow */
-
-        .left, .right { padding: 0; }
         .divider { display: none; }
 
-        /* Desktop layout + space around divider */
         @media (min-width: 1024px) {
-          .grid {
-            grid-template-columns: minmax(0,1fr) 1px minmax(0,1fr);
-            gap: 0;
-            --divider-gap: 12px; /* change to 5px if you want the minimum */
+          .chat-grid {
+            grid-template-columns: minmax(220px,280px) 1px minmax(0,1fr);
+            gap: 0; --divider-gap: 12px;
           }
           .divider {
-            display: block;
-            width: 1px;
-            background: rgba(255, 255, 255, 0.12);
-            min-height: 72vh;
-            align-self: stretch;
+            display: block; width: 1px;
+            background: rgba(255,255,255,0.12); min-height: 78vh; align-self: stretch;
           }
-          .left  { padding-right: var(--divider-gap); }
-          .right { padding-left:  var(--divider-gap); }
         }
 
-        .title {
-          text-align: center;
-          font-weight: 800;
-          color: #8ee2c2;
-          letter-spacing: 0.3px;
-          margin: 8px 0 4px 0;
-        }
-        .title.small { color: #78d2b5; }
-        .subtitle {
-          text-align: center;
-          color: #cbd5e1;
-          font-size: 14px;
-          margin-bottom: 22px;
-          line-height: 1.5;
-        }
-        .subtitle.small { margin-bottom: 8px; }
-        .privacy {
-          color: #a3b0c2;
-          font-size: 13px;
-          line-height: 1.6;
-          margin: 8px 0 22px 0;
-        }
-
-        /* Upload card */
-        .drop {
-          border: 1px dashed rgba(255, 255, 255, 0.2);
-          border-radius: 16px;
-          padding: 24px;
-          background: rgba(255, 255, 255, 0.04);
-          box-shadow: inset 0 10px 30px rgba(0,0,0,0.25);
-          transition: border-color .2s, background .2s, transform .2s;
-          max-width: 640px;
-          margin: 0 auto 18px;
-        }
-        .drop.active {
-          border-color: rgba(59,130,246,0.6);
-          background: rgba(59,130,246,0.08);
-          transform: translateY(-1px);
-        }
-        .drop-inner { text-align: center; }
-        .drop-icon { color: #93c5fd; margin-bottom: 6px; }
-        .drop-title { font-weight: 700; font-size: 18px; }
-        .drop-sub { color: #9ca3af; font-size: 13px; margin-top: 2px; }
-        .cta {
-          margin-top: 10px;
-          display: flex;
-          gap: 12px;
-          justify-content: center;
-          align-items: center;
-        }
-        .primary {
-          background: linear-gradient(135deg, #2563eb, #7c3aed);
-          border: none; color: white; padding: 10px 14px; border-radius: 12px; cursor: pointer;
-          box-shadow: 0 6px 20px rgba(124,58,237,0.35);
-        }
-        .primary:disabled { opacity: .7; cursor: default; }
-        .hint { color: #94a3b8; font-size: 12px; }
-        .error { color: #fca5a5; margin-top: 8px; font-size: 13px; }
-
-        /* Results box */
-        .resultsBox {
-          max-width: 640px;
-          width: 100%;
-          box-sizing: border-box;
-          overflow-x: hidden;
-          margin: 12px auto 0;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 16px;
-          padding: 14px;
-        }
-        .empty {
-          display: grid; justify-items: center; gap: 8px; padding: 16px 8px;
-          color: #9ca3af;
-        }
-        .resultList { display: grid; gap: 12px; width: 100%; }
-        .card {
-          padding: 14px;
+        .sidebar {
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
           border-radius: 14px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          animation: fadeIn 180ms ease-out;
-          max-width: 100%;
-          overflow-wrap: anywhere;
-          word-break: break-word;
+          padding: 14px;
+          height: fit-content;
         }
-        .card-error {
-          border: 1px solid rgba(239,68,68,0.35);
-          background: rgba(239,68,68,0.08);
+        @media (min-width: 1024px) { .sidebar { margin-right: var(--divider-gap); } }
+        .btn {
+          background: linear-gradient(135deg,#2563eb,#7c3aed);
+          border: none; color: white; border-radius: 10px;
+          padding: 8px 12px; cursor: pointer;
+          box-shadow: 0 6px 20px rgba(124,58,237,.35);
+          font-size: 14px;
         }
-        .card-head {
-          display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px;
-        }
-        .file { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .badge { color: white; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
-        .gridInfo {
-          display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px 16px;
-        }
-        .line { display: grid; gap: 2px; min-width: 0; }
-        .label { font-size: 12px; color: #9ca3af; }
-        .value { font-size: 14px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-        .value.err { color: #fca5a5; }
-        .block { margin-top: 10px; }
-        .block-title { font-weight: 600; margin-bottom: 6px; }
-        .list { margin: 0; padding-left: 18px; color: #cbd5e1; }
-        .list li { overflow-wrap: anywhere; word-break: break-word; }
-        a { color: #93c5fd; text-decoration: none; display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; word-break: break-all; }
-        a:hover { text-decoration: underline; }
+        .btn:disabled { opacity: .7; cursor: default; }
+        .aside-note { margin-top: 12px; font-size: 12px; color: #9ca3af; }
 
-        .checkerBox { margin-top: 12px; }
+        .chat-main { display: flex; flex-direction: column; min-width: 0; --lane-w: min(1100px, 92vw); }
+        @media (min-width: 1024px) { .chat-main { margin-left: var(--divider-gap); } }
 
+        .topbar {
+          padding: 12px 16px; font-weight: 700;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 14px;
+          margin-bottom: 12px;
+          max-width: var(--lane-w); margin-inline: auto;
+        }
+
+        .feed {
+          flex: 1; overflow-y: auto; padding: 12px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 14px;
+          max-width: var(--lane-w); margin: 0 auto 12px;
+        }
+        .row { margin-bottom: 14px; display: flex; gap: 10px; align-items: flex-start; }
+        .avatar {
+          width: 28px; height: 28px; border-radius: 6px;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 700; font-size: 12px;
+        }
+        .avatar.user { background: #334155; }
+        .avatar.assistant { background: #1d4ed8; }
+
+        .bubble {
+          background: rgba(11,18,32,0.96);
+          border: 1px solid rgba(255,255,255,0.08);
+          padding: 10px; border-radius: 10px; max-width: 100%;
+          overflow-wrap: anywhere; word-break: break-word;
+        }
+        .pre { white-space: pre-wrap; }
+        .t { margin: 0 0 8px 0; }
+        .ol { margin: 0 0 12px 18px; padding: 0; }
+        .ul { margin: 0 0 0 18px; padding: 0; }
+        .ol li, .ul li { margin-bottom: 6px; } /* ≥5px spacing on desktop */
+        .bubble a { color: #93c5fd; text-decoration: none; }
+        .bubble a:hover { text-decoration: underline; }
+
+        /* Composer */
+        .composer {
+          position: sticky;
+          bottom: max(0px, env(safe-area-inset-bottom));
+          background: rgba(11,18,32,0.65);
+          backdrop-filter: blur(6px);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 12px;
+          padding: 10px;
+          max-width: var(--lane-w);
+          margin: 0 auto;
+        }
+        .compose-row {
+          display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px;
+        }
+        .text {
+          min-height: 160px; /* bigger chatbox */
+          background: #0b1220; color: #e2e8f0;
+          border: 1px solid #1f2937; border-radius: 10px; padding: 12px;
+          font-size: 15px; line-height: 1.5;
+        }
+        .btn.send {
+          height: 40px; /* compact */
+          padding: 0 14px;
+          font-weight: 600; white-space: nowrap;
+        }
+        .upload-row {
+          display: flex; gap: 8px; align-items: center; margin-top: 8px;
+        }
+        .small { font-size: 12px; color: #9ca3af; }
+        .hint { margin-top: 6px; }
+
+        /* Tighten for phones */
+        @media (max-width: 640px) {
+          .compose-row { grid-template-columns: 1fr; }
+          .text { min-height: 120px; font-size: 14px; }
+          .btn.send { width: 100%; height: 44px; }
+          .row { gap: 8px; }
+          .avatar { width: 26px; height: 26px; }
+        }
+
+        /* Footer */
         .footer {
           text-align: center;
           color: #91a1b6;
           font-size: 12px;
-          padding: 16px 12px 22px;
+          padding: 12px 8px 18px;
           position: relative;
           z-index: 2;
+          max-width: var(--lane-w);
+          margin-inline: auto;
         }
-        .footer a { color: #a7c0ff; }
+        .footer a { color: #a7c0ff; text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
       `}</style>
     </div>
   );
