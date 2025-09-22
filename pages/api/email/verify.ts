@@ -1,8 +1,12 @@
+// pages/api/email/verify.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import validator from "validator";
 import * as dns from "dns/promises";
 import whois from "whois-json";
 import { VerifaliaRestClient } from "verifalia";
+
+// ---------------- Shared mailbox type ----------------
+type MailboxStatus = "unknown" | "deliverable" | "undeliverable" | "risky" | "catch-all";
 
 // env
 const HELO_DOMAIN = process.env.VERIFY_HELO || "check.example.com";
@@ -27,11 +31,11 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 // DNS helpers
 async function resolveMxSafe(domain: string) {
   try {
-    const mx = await withTimeout(dns.resolveMx(domain), 5000, []);
-    if (mx?.length) return mx.sort((a, b) => a.priority - b.priority);
+    const mx = await withTimeout(dns.resolveMx(domain), 5000, [] as any);
+    if (mx?.length) return mx.sort((a: any, b: any) => a.priority - b.priority);
   } catch {}
   try {
-    const a = await withTimeout(dns.resolve4(domain), 4000, []);
+    const a = await withTimeout(dns.resolve4(domain), 4000, [] as any);
     if (a.length) return [{ exchange: domain, priority: 0 }];
   } catch {}
   return [];
@@ -40,7 +44,7 @@ async function resolveMxSafe(domain: string) {
 // Spamhaus DBL check (domain)
 async function dblCheckDomain(domain: string) {
   try {
-    const a = await withTimeout(dns.resolve4(`${domain}.dbl.spamhaus.org`), 3000, []);
+    const a = await withTimeout(dns.resolve4(`${domain}.dbl.spamhaus.org`), 3000, [] as any);
     return { listed: a.length > 0, engine: "dbl.spamhaus.org" };
   } catch {
     return { listed: false, engine: "dbl.spamhaus.org" };
@@ -55,8 +59,8 @@ async function rdapCreated(domain: string) {
       6000,
       null as any
     );
-    if (r && r.ok) {
-      const j: any = await r.json();
+    if (r && (r as any).ok) {
+      const j: any = await (r as any).json();
       const ev: any[] = Array.isArray(j.events) ? j.events : [];
       const e =
         ev.find((x) => /registration|created|creation/i.test(x?.eventAction)) ||
@@ -94,10 +98,10 @@ async function localBaseline(email: string) {
     created = await rdapCreated(domain);
   }
 
-  // local baseline can’t prove a mailbox exists. mark unknown.
-  const mailbox = { status: "unknown" as const };
+  // Baseline: we can't confirm the mailbox, so leave unknown.
+  let mailbox: { status: MailboxStatus; catchAll?: boolean } = { status: "unknown" };
 
-  const safeToSend = formatOK && hasMX && !dbl.listed && mailbox.status !== "undeliverable";
+  const safeToSend = Boolean(formatOK && hasMX && !dbl.listed && mailbox.status !== "undeliverable");
   const list: "whitelist" | "greylist" | "blacklist" =
     !formatOK || dbl.listed ? "blacklist" : safeToSend ? "whitelist" : "greylist";
 
@@ -117,10 +121,6 @@ async function localBaseline(email: string) {
 }
 
 function verifaliaSafe(entry: any) {
-  // Deliverable => true
-  // Risky => false by default (you can relax if you want)
-  // Unknown => false
-  // Undeliverable => false
   const cls = String(entry?.classification || "").toLowerCase();
   return cls === "deliverable";
 }
@@ -164,21 +164,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const job = await verifalia.emailValidations.submit(email, {
       quality: "High",
       deduplication: "Safe",
-      retention: "Transient", // no storage
-      waitOptions: { // block until done, with a sane timeout
-        timeout: 20000,
-      },
-      sender: { // improves acceptance with some providers
-        emailAddress: MAIL_FROM,
-        hostName: HELO_DOMAIN,
-      },
+      retention: "Transient",
+      waitOptions: { timeout: 20000 },
+      sender: { emailAddress: MAIL_FROM, hostName: HELO_DOMAIN },
     });
 
     const entry = job?.entries?.[0];
-    const classification = entry?.classification || "Unknown";
-    const status = entry?.status || "Completed";
+    const classification = String(entry?.classification || "Unknown");
+    const status = String(entry?.status || "Completed");
 
-    const safeToSend = verifaliaSafe(entry);
+    // ---------- <<< MAPPING GOES HERE >>> ----------
+    // Normalize provider classification to our union type
+    const incoming = classification.toLowerCase(); // "deliverable" | "undeliverable" | "risky" | "unknown" ...
+    let mailbox: { status: MailboxStatus; catchAll?: boolean; classification?: string; suggestedCorrection?: string | null; completed?: string; reasons?: any } =
+      { status: "unknown" };
+
+    if (incoming === "deliverable" || incoming === "undeliverable" || incoming === "risky") {
+      mailbox.status = incoming as MailboxStatus;
+    }
+    if (entry?.isCatchAll === true) {
+      mailbox.status = "catch-all";
+      mailbox.catchAll = true;
+    }
+
+    // Add extra fields for UI
+    mailbox.classification = classification;
+    mailbox.suggestedCorrection = (entry as any)?.suggestedCorrection || null;
+    mailbox.completed = status;
+    mailbox.reasons = (entry as any)?.statusHistory || (entry as any)?.entries || null;
+    // ---------- <<< END MAPPING >>> ----------
+
+    // safeToSend now respects BOTH domain checks and mailbox result
+    const safeToSend = Boolean(
+      formatOK && hasMX && !dbl.listed && mailbox.status !== "undeliverable" && verifaliaSafe(entry)
+    );
     const list = toList(entry);
 
     const out = {
@@ -188,13 +207,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       domain,
       hasMX,
       mx,
-      mailbox: {
-        status: safeToSend ? "deliverable" : classification.toLowerCase() === "undeliverable" ? "undeliverable" : "unknown",
-        classification,
-        suggestedCorrection: entry?.suggestedCorrection || null,
-        completed: status,
-        reasons: entry?.statusHistory || entry?.entries || null,
-      },
+      mailbox,
       dbl,
       whois: { created },
       verdict: {
