@@ -3,6 +3,6 @@ import { useRouter } from "next/router";
 
 export default function Home() {
   const router = useRouter();
-  useEffect(() => { router.replace("/upload"); }, [router]);
+  useEffect(() => { router.replace("/chat"); }, [router]);
   return null;
 }
