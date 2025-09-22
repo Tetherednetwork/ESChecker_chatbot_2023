@@ -2,16 +2,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import validator from "validator";
 import * as dns from "dns/promises";
 import whois from "whois-json";
-import { VerifaliaRestClient } from "verifalia";
+import axios from "axios";
 
-type MailboxStatus = "unknown" | "deliverable" | "undeliverable" | "risky" | "catch-all";
-
-const verifalia = process.env.VERIFALIA_USERNAME && process.env.VERIFALIA_PASSWORD
-  ? new VerifaliaRestClient({
-      username: process.env.VERIFALIA_USERNAME!,
-      password: process.env.VERIFALIA_PASSWORD!,
-    })
-  : null;
+type MailboxStatus = "unknown" | "valid" | "risky" | "invalid" | "catch-all";
 
 const cache = new Map<string, { ts: number; data: any }>();
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -88,7 +81,7 @@ async function localBaseline(email: string) {
 
   let mailbox: { status: MailboxStatus; catchAll?: boolean } = { status: "unknown" };
 
-  const safeToSend = Boolean(formatOK && hasMX && !dbl.listed && mailbox.status !== "undeliverable");
+  const safeToSend = Boolean(formatOK && hasMX && !dbl.listed && mailbox.status !== "invalid");
   const list: "whitelist" | "greylist" | "blacklist" =
     !formatOK || dbl.listed ? "blacklist" : safeToSend ? "whitelist" : "greylist";
 
@@ -105,18 +98,6 @@ async function localBaseline(email: string) {
     verdict: { list, safeToSend, strict: false, confidence: { score: 4, band: "medium", ageDays: 0 } },
     notes: ["Local baseline used. Could not confirm mailbox existence."],
   };
-}
-
-function verifaliaSafe(entry: any) {
-  const cls = String(entry?.classification || "").toLowerCase();
-  return cls === "deliverable";
-}
-
-function toList(entry: any): "whitelist" | "greylist" | "blacklist" {
-  const cls = String(entry?.classification || "").toLowerCase();
-  if (cls === "deliverable") return "whitelist";
-  if (cls === "undeliverable") return "blacklist";
-  return "greylist";
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -138,54 +119,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ]);
     const hasMX = mx.length > 0;
 
-    if (!verifalia) {
-      const data = await localBaseline(email);
-      cache.set(email, { ts: Date.now(), data });
-      return res.status(200).json(data);
-    }
+    const apiKey = process.env.MYEMAILVERIFIER_API_KEY;
+    if (!apiKey) throw new Error("Missing MyEmailVerifier API key");
 
-    const job = await verifalia.emailValidations.submit({
-      entries: [{ inputData: email }],
-      quality: "High",
-      deduplication: "Safe",
-      retention: "Transient"
+    const response = await axios.get("https://emailverifier.space/api/email", {
+      params: { email, apiKey }
     });
 
-    const entry = job?.entries?.[0];
-    const classification = String(entry?.classification || "Unknown");
-    const status = String(entry?.status || "Completed");
-
-    const incoming = classification.toLowerCase();
-    let mailbox: {
+    const result = response.data;
+    const mailbox: {
       status: MailboxStatus;
       catchAll?: boolean;
       classification?: string;
       suggestedCorrection?: string | null;
       completed?: string;
       reasons?: any;
-    } = { status: "unknown" };
+    } = {
+      status: result.primary_result || "unknown",
+      catchAll: result.secondary_result === "accept_all",
+      classification: result.primary_result,
+      reasons: result.process_result
+    };
 
-    if (incoming === "deliverable" || incoming === "undeliverable" || incoming === "risky") {
-      mailbox.status = incoming as MailboxStatus;
-    }
-
-    if ((entry as any)?.isCatchAll === true) {
-      mailbox.status = "catch-all";
-      mailbox.catchAll = true;
-    }
-
-    mailbox.classification = classification;
-    mailbox.suggestedCorrection = (entry as any)?.suggestedCorrection || null;
-    mailbox.completed = status;
-    mailbox.reasons = (entry as any)?.statusHistory || (entry as any)?.entries || null;
-
-    const safeToSend = Boolean(
-      formatOK && hasMX && !dbl.listed && mailbox.status !== "undeliverable" && verifaliaSafe(entry)
-    );
-    const list = toList(entry);
+    const safeToSend = result.primary_result === "valid" && result.process_result?.smtp_check === "Pass";
+    const list: "whitelist" | "greylist" | "blacklist" =
+      result.primary_result === "valid" ? "whitelist" :
+      result.primary_result === "risky" ? "greylist" : "blacklist";
 
     const out = {
-      source: "verifalia",
+      source: "myemailverifier",
       input: email,
       formatOK,
       domain,
@@ -205,8 +167,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       },
       notes: [
-        "Validation performed via Verifalia.",
-        "Result reflects mailbox-level verification without sending an email.",
+        "Validation performed via MyEmailVerifier.",
+        "Includes syntax, MX, SMTP, catch-all, role, and disposable checks."
       ],
     };
 
