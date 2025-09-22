@@ -24,7 +24,7 @@
     "psl": "^1.15.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "smtp-connection": "^4.0.2",
+    "smtp-connection": "^3.2.0",
     "validator": "^13.15.15",
     "verifalia": "^5.0.0",
     "whois-json": "^2.0.4"
