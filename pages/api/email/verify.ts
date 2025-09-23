@@ -115,35 +115,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const apiKey = process.env.MYEMAILVERIFIER_API_KEY;
     if (!apiKey) throw new Error("Missing MyEmailVerifier API key");
 
-    const response = await axios.get("https://emailverifier.space/api/email", {
-      params: { email, apiKey },
-    });
+    const response = await axios.get(
+      `https://client.myemailverifier.com/verifier/validate_single/${email}/${apiKey}`
+    );
 
     const result = response.data;
-    const primary = result.primary_result || "unknown";
-    const smtp = result.process_result?.smtp_check || "Unknown";
-
-    const mailbox: {
-      status: MailboxStatus;
-      catchAll?: boolean;
-      classification?: string;
-      suggestedCorrection?: string | null;
-      completed?: string;
-      reasons?: any;
-    } = {
-      status: primary,
-      catchAll: result.secondary_result === "accept_all",
-      classification: primary,
-      reasons: result.process_result,
-    };
+    const status = result.Status || "Unknown";
+    const catchAll = result.catch_all === "true";
+    const greylisted = result.Greylisted === "true";
 
     let list: "whitelist" | "greylist" | "blacklist";
     let confidence: "high" | "medium" | "low";
 
-    if (primary === "valid" && smtp === "Pass") {
+    if (status === "Valid") {
       list = "whitelist";
       confidence = "high";
-    } else if (primary === "risky" || smtp === "Unknown") {
+    } else if (status === "Catch-all" || greylisted) {
       list = "greylist";
       confidence = "medium";
     } else {
@@ -152,6 +139,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const safeToSend = list === "whitelist";
+
+    const mailbox = {
+      status: status.toLowerCase() as MailboxStatus,
+      catchAll,
+      classification: status,
+      reasons: {
+        diagnosis: result.Diagnosis,
+        roleBased: result.Role_Based === "true",
+        disposable: result.Disposable_Domain === "true",
+        freeDomain: result.Free_Domain === "true"
+      }
+    };
 
     const out = {
       source: "myemailverifier",
@@ -175,7 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       notes: [
         "Validation performed via MyEmailVerifier.",
-        "Includes syntax, MX, SMTP, catch-all, role, and disposable checks.",
+        "Includes syntax, MX, catch-all, role, disposable, and greylist checks.",
       ],
     };
 
