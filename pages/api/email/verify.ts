@@ -120,6 +120,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
 
     const result = response.data;
+    console.log("Raw MyEmailVerifier response:", result); // ✅ Debug log
+
     const status = result.Status || "Unknown";
     const catchAll = result.catch_all === "true";
     const greylisted = result.Greylisted === "true";
