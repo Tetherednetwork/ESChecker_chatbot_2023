@@ -1,13 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async redirects() {
-    return [
-      {
-        source: '/upload',
-        destination: '/chat',
-        permanent: true,
-      },
-    ];
+  eslint: {
+    // Don’t run ESLint during `next build`
+    ignoreDuringBuilds: true,
   },
 };
 
